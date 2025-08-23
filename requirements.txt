@@ -1,0 +1,5 @@
+jax
+matplotlib
+scipy
+cvxpy
+pytest
