@@ -5,7 +5,6 @@ from jax import vmap, jacobian, lax
 import jax.numpy as jnp
 
 from robotools.math import integrate
-from robotools.plan.trajectory import Trajectory
 
 
 class DynamicModel(ABC):
@@ -62,7 +61,7 @@ class DynamicModel(ABC):
         num_steps: int,
         dt: float,
         init_time: float = 0,
-    ) -> Trajectory:
+    ) -> tuple[jnp.ndarray]:
         """Simulate a policy from some initial condition.
 
         Args:
@@ -94,9 +93,7 @@ class DynamicModel(ABC):
 
         states = jnp.vstack([init_state[None, :], states])
 
-        trajectory = Trajectory(states, controls, dt)
-
-        return trajectory
+        return states, controls
 
     def continuous_linearize(
         self, state: jnp.ndarray, control: jnp.ndarray, t: float

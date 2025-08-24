@@ -1,10 +1,13 @@
 from abc import ABC, abstractmethod
 
 import cvxpy as cp
+import jax
 import jax.numpy as jnp
+import numpy as np  # Used to populate cvxpy param values
 from tqdm import tqdm
 
 from robotools.plan.trajectory import Trajectory
+from robotools.model.dynamics import DynamicModel
 
 """
 Things defined by the problem
@@ -25,7 +28,11 @@ Things determined by (and common) SQP
 """
 
 """TODO: do the technique of setting up the format of the cvxpy expression
-with parameters, and calculate the grad with AD and populate."""
+with parameters, and calculate the grad with AD and populate.
+
+Add other constraints
+Handle time varying case
+"""
 
 
 class DirectMethod(ABC):
@@ -38,7 +45,7 @@ class DirectMethod(ABC):
     discretization. Transcription methods generally fall into two categories:
     shooting methods and collocation methods."""
 
-    def __init__(self, dynamics, constraints) -> None:
+    def __init__(self) -> None:
         pass
 
     @abstractmethod
@@ -67,23 +74,39 @@ class DirectMethod(ABC):
         """
         raise NotImplementedError()
 
-    @abstractmethod
-    def cost(self, trajectory: Trajectory) -> cp.Expression:
-        """Defines the cost function for a particular trajectory"""
-        raise NotImplementedError()
-
 
 class DirectTranscription(DirectMethod):
-    def __init__(self):
+    def __init__(self, model: DynamicModel):
         super().__init__()
+        self.model = model
+        # self.ct_jac_state = jax.jacobian(, 0)
 
-    def cost(self, trajectory: Trajectory):
-        total_cost = self.final_cost(trajectory.state[-1]) + jnp.sum(
-            self.stage_cost(trajectory)
-        )
-
-    def approximate(self, trajectory):
+    def cost(self, states, controls, times):
         pass
+
+    def extract_trajectory(problem):
+        pass
+
+    def approximate(self, trajectory: Trajectory):
+        """
+        Quadratrize cost around traj, linearize constraints around traj
+        Assign values to prestructured cvxpy parameters
+        Return problem
+        """
+        num_steps = len(trajectory.controls)
+        times = jnp.arange(num_steps + 1) * trajectory.dt
+
+        As = cp.Parameter((num_steps, self.model.n, self.model.n))
+        Bs = cp.Parameter((num_steps, self.model.n, self.model.m))
+        Cs = cp.Parameter((num_steps, self.model.n))
+
+        # Linearize dynamics
+        A_values, B_values, C_values = self.model.discrete_linearize_traj(
+            trajectory.states, trajectory.controls, times, trajectory.dt
+        )
+        As.value = np.array(A_values)
+        Bs.value = np.array(B_values)
+        Cs.value = np.array(C_values)
 
 
 def SQP(
@@ -101,7 +124,7 @@ def SQP(
 
         tqdm.write(f"Cost: {result}")
 
-        current_trajectory = direct_method.extract_solution_trajectory(problem)
+        current_trajectory = direct_method.extract_trajectory(problem)
 
         if jnp.abs(prev_cost - result) / result < convergence_tol:
             break
