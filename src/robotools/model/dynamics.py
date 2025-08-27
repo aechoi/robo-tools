@@ -12,6 +12,7 @@ class DynamicModel(ABC):
         self.n = None
         self.m = None
 
+        # Calculate these once per model for speed up.
         self.ct_jac_state = jacobian(self.continuous_dynamics, 0)
         self.ct_jac_control = jacobian(self.continuous_dynamics, 1)
         self.dt_jac_state = jacobian(self.discrete_dynamics, 0)

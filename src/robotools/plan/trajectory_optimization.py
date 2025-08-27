@@ -8,6 +8,8 @@ from tqdm import tqdm
 
 from robotools.plan.trajectory import Trajectory
 from robotools.model.dynamics import DynamicModel
+from robotools.math.cost import Cost
+from robotools.math.constraint import Constraint
 
 """
 Things defined by the problem
@@ -76,16 +78,50 @@ class DirectMethod(ABC):
 
 
 class DirectTranscription(DirectMethod):
-    def __init__(self, model: DynamicModel):
+    def __init__(
+        self,
+        num_steps: int,
+        dt: float,
+        cost: Cost,
+        model: DynamicModel,
+        constraints: list[Constraint] = None,
+    ) -> None:
         super().__init__()
+        self.num_steps = num_steps
+        self.dt = dt
+        self.cost = cost
         self.model = model
-        # self.ct_jac_state = jax.jacobian(, 0)
 
-    def cost(self, states, controls, times):
-        pass
+        if constraints is None:
+            raise ValueError("Need at least an initial condition")
+        self.constraints = constraints
+
+        self.times = jnp.arange(num_steps + 1) * dt
 
     def extract_trajectory(problem):
         pass
+
+    def construct_nlp(self):
+        # Decision Variables
+        state_traj = cp.Variable((self.num_steps + 1, self.model.n))
+        control_traj = cp.Variable((self.num_steps, self.model.m))
+
+        # Objective
+        objective = cp.Minimize(self.cost.total(state_traj, control_traj, self.dt))
+
+        # Constraints
+        constraints = []
+        constraints += (
+            self.model.discrete_dynamics(
+                state_traj[:-1].T, control_traj.T, self.times, self.dt
+            )
+            == state_traj[1:].T
+        )
+        # TODO create constraint class
+        constraints += state_traj[:, 0] == jnp.array([1.0, 1.0])
+
+        problem = cp.Problem(objective, constraints)
+        return problem
 
     def approximate(self, trajectory: Trajectory):
         """
@@ -153,6 +189,31 @@ def cost_deviation(
     cost += coeff * cp.sum_squares(states - prev_states)
     cost += coeff * cp.sum_squares(controls - prev_controls)
     return cost
+
+
+if __name__ == "__main__":
+    from robotools.model.library import DoubleIntegrator
+    from robotools.math import cost
+
+    num_steps = 100
+    dt = 0.1
+
+    model = DoubleIntegrator()
+    # cost
+    Q = jnp.eye(model.n)
+    R = jnp.eye(model.m)
+    S = jnp.zeros((model.n, model.m))
+    stage_cost, terminal_cost = cost.quadratic(Q, R, S)
+    cost_expression = Cost(stage_cost, terminal_cost)
+
+    constraints = []
+
+    direct_transcription = DirectTranscription(
+        num_steps, dt, cost_expression, model, constraints
+    )
+
+    prob = direct_transcription.construct_nlp()
+    prob.solve()
 
 
 # def seq_quad_prog(
